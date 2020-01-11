@@ -108,6 +108,50 @@ minor-mode, the third argument should be non nil."
               :evil-states (normal motion visual evilified)))
           (boundp prefix)))))
 
+(defun leader-key-declare-prefix (prefix name &optional long-name)
+  "Declare a prefix PREFIX. PREFIX is a string describing a key
+sequence. NAME is a string used as the prefix command.
+LONG-NAME if given is stored in `leader-key-prefix-titles'."
+  (with-eval-after-load 'which-key
+    (let* ((command name)
+           (full-prefix (concat leader-key-evil-leader-key " " prefix))
+           (full-prefix-emacs (concat leader-key-emacs-leader-key " " prefix))
+           (full-prefix-lst (listify-key-sequence (kbd full-prefix)))
+           (full-prefix-emacs-lst (listify-key-sequence
+                                   (kbd full-prefix-emacs))))
+      ;; define the prefix command only if it does not already exist
+      (unless long-name (setq long-name name))
+      (which-key-add-key-based-replacements
+        full-prefix-emacs (cons name long-name)
+        full-prefix (cons name long-name)))))
+(put 'leader-key-declare-prefix 'lisp-indent-function 'defun)
+
+(defun leader-key-declare-prefix-for-mode (mode prefix name &optional long-name)
+  "Declare a prefix PREFIX. MODE is the mode in which this prefix command should
+be added. PREFIX is a string describing a key sequence. NAME is a symbol name
+used as the prefix command."
+  (with-eval-after-load 'which-key
+    (let ((command (intern (concat (symbol-name mode) name)))
+          (full-prefix (concat leader-key-evil-leader-key " " prefix))
+          (full-prefix-emacs (concat leader-key-emacs-leader-key " " prefix))
+          (is-major-mode-prefix (string-prefix-p "m" prefix))
+          (major-mode-prefix (concat leader-key-major-mode-evil-leader-key
+                                     " " (substring prefix 1)))
+          (major-mode-prefix-emacs
+           (concat leader-key-major-mode-emacs-leader-key
+                   " " (substring prefix 1))))
+      (unless long-name (setq long-name name))
+      (let ((prefix-name (cons name long-name)))
+        (which-key-add-major-mode-key-based-replacements mode
+          full-prefix-emacs prefix-name
+          full-prefix prefix-name)
+        (when (and is-major-mode-prefix leader-key-major-mode-evil-leader-key)
+          (which-key-add-major-mode-key-based-replacements mode major-mode-prefix prefix-name))
+        (when (and is-major-mode-prefix leader-key-major-mode-emacs-leader-key)
+          (which-key-add-major-mode-key-based-replacements
+            mode major-mode-prefix-emacs prefix-name))))))
+(put 'leader-key-declare-prefix-for-mode 'lisp-indent-function 'defun)
+
 ;;;###autoload
 (defun leader-key-set-for-major-mode (mode key def &rest bindings)
   "Add KEY and DEF as key bindings under
