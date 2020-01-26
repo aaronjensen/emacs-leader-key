@@ -160,7 +160,7 @@ used as the prefix command."
 MODE. MODE should be a quoted symbol corresponding to a valid
 major mode. The rest of the arguments are treated exactly like
 they are in `leader-key-set-leader-keys'."
-  (let* ((map (intern (format "spacemacs-%s-map" mode))))
+  (let* ((map (intern (format "leader-key-%s-map" mode))))
     (when (leader-key--init-leader-mode-map mode map)
       (while key
         (define-key (symbol-value map) (kbd key) def)
@@ -174,7 +174,7 @@ they are in `leader-key-set-leader-keys'."
 MODE. MODE should be a quoted symbol corresponding to a valid
 minor mode. The rest of the arguments are treated exactly like
 they are in `leader-key-set-leader-keys'."
-  (let* ((map (intern (format "spacemacs-%s-map" mode))))
+  (let* ((map (intern (format "leader-key-%s-map" mode))))
     (when (leader-key--init-leader-mode-map mode map t)
       (while key
         (define-key (symbol-value map) (kbd key) def)
