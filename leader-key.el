@@ -26,6 +26,8 @@
 ;; Leader key binding helpers
 
 ;;; Code:
+(require 'bind-map)
+
 (defvar leader-key-default-map (make-sparse-keymap)
   "Base keymap for all leader key commands.")
 
@@ -182,7 +184,6 @@ they are in `leader-key-set-leader-keys'."
 
 ;;;###autoload
 (defun leader-key-init ()
-  (require 'bind-map)
   (bind-map leader-key-default-map
     :prefix-cmd leader-key-cmds
     :keys (leader-key-emacs-leader-key)
