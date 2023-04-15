@@ -59,6 +59,7 @@
   "Return t if key is a string and non-empty."
   (and (stringp key) (not (string= key ""))))
 
+;;;###autoload
 (defun leader-key-set (key def &rest bindings)
   "Add KEY and DEF as key bindings under
 `leader-key-evil-leader-key' and `leader-key-emacs-leader-key'.
@@ -110,6 +111,7 @@ minor-mode, the third argument should be non nil."
               :evil-states (normal motion visual evilified)))
           (boundp prefix)))))
 
+;;;###autoload
 (defun leader-key-declare-prefix (prefix name &optional long-name)
   "Declare a prefix PREFIX. PREFIX is a string describing a key
 sequence. NAME is a string used as the prefix command.
@@ -128,6 +130,7 @@ LONG-NAME if given is stored in `leader-key-prefix-titles'."
         full-prefix (cons name long-name)))))
 (put 'leader-key-declare-prefix 'lisp-indent-function 'defun)
 
+;;;###autoload
 (defun leader-key-declare-prefix-for-mode (mode prefix name &optional long-name)
   "Declare a prefix PREFIX. MODE is the mode in which this prefix command should
 be added. PREFIX is a string describing a key sequence. NAME is a symbol name
