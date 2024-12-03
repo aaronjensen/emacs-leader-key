@@ -73,9 +73,9 @@ For convenience, this function will accept additional KEY DEF
 pairs. For example,
 
 \(leader-key-set
-   \"a\" 'command1
-   \"C-c\" 'command2
-   \"bb\" 'command3\)"
+   \"a\" \\='command1
+   \"C-c\" \\='command2
+   \"bb\" \\='command3\)"
   (while key
     (define-key leader-key-default-map (kbd key) def)
     (setq key (pop bindings) def (pop bindings))))
