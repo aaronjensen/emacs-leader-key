@@ -5,8 +5,8 @@
 
 ;; Author: Aaron Jensen <aaronjensen@gmail.com>
 ;; Keywords: evil
-;; Version: 0.0.1
-;; Package-Requires: (bind-map)
+;; Version: 0.1.0
+;; Package-Requires: ()
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -26,8 +26,6 @@
 ;; Leader key binding helpers
 
 ;;; Code:
-(require 'bind-map)
-
 (defvar leader-key-default-map (make-sparse-keymap)
   "Base keymap for all leader key commands.")
 
@@ -55,6 +53,75 @@
   :group 'leader-key
   :type 'string)
 
+(defvar leader-key--major-modes-alist nil
+  "Each elem is (ACTIVE-VAR MAJOR-MODES...).
+Used to toggle per-major-mode leader maps when the mode is active.")
+
+(defvar leader-key--evil-local-bindings nil
+  "Elements are (OVERRIDE-MODE STATE KEY DEF).
+Installed into evil local state maps from `evil-local-mode-hook' to ensure
+leader keys override other minor modes in Evil states.")
+
+(defun leader-key--kbd-keys (keys)
+  "Apply `kbd' to KEYS filtering out nil/empty strings."
+  (let (res)
+    (dolist (key keys (nreverse res))
+      (when (and (stringp key) (not (string= key "")))
+        (push (kbd key) res)))))
+
+(defun leader-key--add-to-major-mode-list (activate-var major-mode-list)
+  "Register ACTIVATE-VAR for MAJOR-MODE-LIST in `leader-key--major-modes-alist'."
+  (let ((current (assq activate-var leader-key--major-modes-alist)))
+    (if current
+        (setcdr current (append (cdr current) major-mode-list))
+      (push (cons activate-var major-mode-list) leader-key--major-modes-alist))))
+
+;;;###autoload
+(defun leader-key-add-to-major-mode-list (activate-var major-mode-list)
+  "Public API to associate ACTIVATE-VAR with MAJOR-MODE-LIST.
+This makes a per-major-mode leader map (identified by ACTIVATE-VAR)
+active for all modes in MAJOR-MODE-LIST.
+
+Example:
+  (leader-key-add-to-major-mode-list 'leader-key-org-mode-map-active '(org-journal-mode))
+activates Org's leader map in `org-journal-mode' buffers as well."
+  (leader-key--add-to-major-mode-list activate-var major-mode-list))
+
+
+(defun leader-key--change-major-mode-after-body-hook ()
+  "Activate per-major-mode leader maps for the current `major-mode'."
+  (dolist (entry leader-key--major-modes-alist)
+    (let ((active-var (car entry))
+          (modes (cdr entry)))
+      (when (boundp active-var)
+        (setf (symbol-value active-var) (memq major-mode modes))))))
+(add-hook 'change-major-mode-after-body-hook #'leader-key--change-major-mode-after-body-hook)
+
+(defun leader-key--evil-local-mode-hook ()
+  "Install local Evil state bindings for leader overrides."
+  (dolist (entry leader-key--evil-local-bindings)
+    (let* ((override-mode (nth 0 entry))
+           (state (nth 1 entry))
+           (key (nth 2 entry))
+           (def (nth 3 entry))
+           (map (intern (format "evil-%s-state-local-map" state)))
+           (global-mode (intern (format "global-%s" override-mode)))
+           ;; Emacs 31 renamed this variable to --set-explicitly
+           (set-explicitly (let ((v1 (intern (format "%s--set-explicitly" override-mode)))
+                                 (v2 (intern (format "%s-set-explicitly" override-mode))))
+                             (cond
+                              ((boundp v1) v1)
+                              ((boundp v2) v2)
+                              (t nil)))))
+      (when (and (boundp global-mode) (boundp override-mode)
+                 (boundp map) (keymapp (symbol-value map))
+                 (symbol-value global-mode)
+                 (not (and set-explicitly (symbol-value set-explicitly)
+                           (null (symbol-value override-mode)))))
+        (define-key (symbol-value map) key def)))))
+(with-eval-after-load 'evil
+  (add-hook 'evil-local-mode-hook #'leader-key--evil-local-mode-hook))
+
 (defun leader-key-acceptable-leader-p (key)
   "Return t if key is a string and non-empty."
   (and (stringp key) (not (string= key ""))))
@@ -80,36 +147,58 @@ pairs. For example,
     (define-key leader-key-default-map (kbd key) def)
     (setq key (pop bindings) def (pop bindings))))
 
+(defun leader-key--ensure-prefix (map)
+  "Ensure a prefix command exists for MAP and return its symbol."
+  (let ((prefix (intern (format "%s-prefix" map))))
+    (unless (boundp prefix)
+      (set prefix nil))
+    (unless (and (boundp map) (keymapp (symbol-value map)))
+      (set map (make-sparse-keymap)))
+    (set prefix (symbol-value map))
+    (setf (symbol-function prefix) (symbol-value map))
+    prefix))
+
 (defun leader-key--init-leader-mode-map (mode map &optional minor)
-  "Check for MAP-prefix. If it doesn't exist yet, use `bind-map'
-to create it and bind it to `leader-key-major-mode-evil-leader-key'
-and `leader-key-major-mode-emacs-leader-key'. If MODE is a
-minor-mode, the third argument should be non nil."
-  (let* ((prefix (intern (format "%s-prefix" map)))
-         (leader1 (when (leader-key-acceptable-leader-p
-                         leader-key-major-mode-evil-leader-key)
+  "Create a per-MODE leader MAP and bind leader prefixes.
+If MINOR is non-nil, MODE is treated as a minor mode, otherwise a major mode."
+  (let* ((prefix (leader-key--ensure-prefix map))
+         (root-map (intern (format "%s-root-map" map)))
+         (leader1 (when (leader-key-acceptable-leader-p leader-key-major-mode-evil-leader-key)
                     leader-key-major-mode-evil-leader-key))
-         (leader2 (when (leader-key-acceptable-leader-p
-                         leader-key-evil-leader-key)
+         (leader2 (when (leader-key-acceptable-leader-p leader-key-evil-leader-key)
                     (concat leader-key-evil-leader-key " m")))
-         (emacs-leader1 (when (leader-key-acceptable-leader-p
-                               leader-key-major-mode-emacs-leader-key)
+         (emacs-leader1 (when (leader-key-acceptable-leader-p leader-key-major-mode-emacs-leader-key)
                           leader-key-major-mode-emacs-leader-key))
-         (emacs-leader2 (when (leader-key-acceptable-leader-p
-                               leader-key-emacs-leader-key)
+         (emacs-leader2 (when (leader-key-acceptable-leader-p leader-key-emacs-leader-key)
                           (concat leader-key-emacs-leader-key " m")))
          (leaders (delq nil (list leader1 leader2)))
-         (emacs-leaders (delq nil (list emacs-leader1 emacs-leader2))))
-    (or (boundp prefix)
-        (progn
-          (eval
-           `(bind-map ,map
-              :prefix-cmd ,prefix
-              ,(if minor :minor-modes :major-modes) (,mode)
-              :keys ,emacs-leaders
-              :evil-keys ,leaders
-              :evil-states (normal motion visual evilified)))
-          (boundp prefix)))))
+         (emacs-leaders (delq nil (list emacs-leader1 emacs-leader2)))
+         (states '(normal motion visual evilified)))
+    (unless (and (boundp root-map) (keymapp (symbol-value root-map)))
+      (set root-map (make-sparse-keymap)))
+    (if minor
+        ;; Minor mode root map is active when the minor mode is active
+        (add-to-list 'minor-mode-map-alist (cons mode (symbol-value root-map)))
+      ;; Major mode root map is activated via a buffer-local toggle
+      (let ((active-var (intern (format "%s-active" map))))
+        (eval `(defvar-local ,active-var nil))
+        (add-to-list 'minor-mode-map-alist (cons active-var (symbol-value root-map)))
+        (leader-key--add-to-major-mode-list active-var (list mode))
+        ;; Trigger once for current buffer
+        (leader-key--change-major-mode-after-body-hook)))
+
+    ;; Bind Emacs leaders into root-map (scoped by activation above)
+    (dolist (key (leader-key--kbd-keys emacs-leaders))
+      (define-key (symbol-value root-map) key prefix))
+
+    ;; Bind Evil leaders for selected states, scoped to root-map
+    (with-eval-after-load 'evil
+      (dolist (key (leader-key--kbd-keys leaders))
+        (dolist (state states)
+          (define-key (evil-get-auxiliary-keymap (symbol-value root-map) state t)
+            key prefix))))
+
+    (boundp prefix)))
 
 ;;;###autoload
 (defun leader-key-declare-prefix (prefix name &optional long-name)
@@ -186,13 +275,46 @@ they are in `leader-key-set-leader-keys'."
         (setq key (pop bindings) def (pop bindings))))))
 
 ;;;###autoload
+(defun turn-on-leader-key-leader-override-mode ()
+  "Enable `leader-key-leader-override-mode' outside minibuffer."
+  (unless (minibufferp) (leader-key-leader-override-mode 1)))
+
+(define-minor-mode leader-key-leader-override-mode
+  "Leader-key overriding minor mode."
+  :global nil)
+
+(define-globalized-minor-mode global-leader-key-leader-override-mode
+  leader-key-leader-override-mode
+  turn-on-leader-key-leader-override-mode)
+
 (defun leader-key-init ()
-  (bind-map leader-key-default-map
-    :prefix-cmd leader-key-cmds
-    :keys (leader-key-emacs-leader-key)
-    :evil-keys (leader-key-evil-leader-key)
-    :override-minor-modes t
-    :override-mode-name leader-key-leader-override-mode))
+  "Initialize the global leader maps."
+  ;; Ensure prefix command for default leader map
+  (let* ((prefix (leader-key--ensure-prefix 'leader-key-default-map))
+         (root-map 'leader-key-default-root-map)
+         (states '(normal motion visual)))
+    (unless (and (boundp root-map) (keymapp (symbol-value root-map)))
+      (set root-map (make-sparse-keymap)))
+
+    ;; Enable overriding minor mode globally
+    (global-leader-key-leader-override-mode 1)
+
+    ;; Ensure our root map participates in emulation precedence
+    (add-to-list 'emulation-mode-map-alists (list (cons 'leader-key-leader-override-mode (symbol-value root-map))))
+
+    ;; Emacs leaders: bind in both root-map (override) and global map
+    (dolist (key (leader-key--kbd-keys (list leader-key-emacs-leader-key)))
+      (define-key (symbol-value root-map) key prefix)
+      (global-set-key key prefix))
+
+    ;; Evil leader key handling
+    (with-eval-after-load 'evil
+      (dolist (key (leader-key--kbd-keys (list leader-key-evil-leader-key)))
+        (dolist (state states)
+          ;; Install as local override in Evil states to ensure precedence
+          (push (list 'leader-key-leader-override-mode state key prefix) leader-key--evil-local-bindings)
+          (evil-global-set-key state key prefix)))
+      (evil-normalize-keymaps))))
 
 (provide 'leader-key)
 ;;; leader-key.el ends here
