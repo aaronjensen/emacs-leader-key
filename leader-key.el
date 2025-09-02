@@ -62,6 +62,12 @@ Used to toggle per-major-mode leader maps when the mode is active.")
 (defvar leader-key--evil-overriding-states '(normal motion visual)
   "Evil states in which leader maps should be overriding.")
 
+(eval-when-compile
+  (declare-function evil-normalize-keymaps "evil-core")
+  (declare-function evil-define-minor-mode-key "evil-core" (state mode key def &rest bindings))
+  (declare-function evil-get-auxiliary-keymap "evil-core" (keymap state &optional create local))
+  (declare-function evil-make-overriding-map "evil-core" (keymap state)))
+
 (defun leader-key--kbd-keys (keys)
   "Apply `kbd' to KEYS filtering out nil/empty strings."
   (let (res)
@@ -155,7 +161,6 @@ If MINOR is non-nil, MODE is treated as a minor mode, otherwise a major mode."
                           (concat leader-key-emacs-leader-key " m")))
          (leaders (delq nil (list leader1 leader2)))
          (emacs-leaders (delq nil (list emacs-leader1 emacs-leader2)))
-         (states '(normal motion visual evilified))
          (active-var (unless minor (intern (format "%s-active" map)))))
     (unless (and (boundp root-map) (keymapp (symbol-value root-map)))
       (set root-map (make-sparse-keymap)))
@@ -174,12 +179,11 @@ If MINOR is non-nil, MODE is treated as a minor mode, otherwise a major mode."
     (dolist (key (leader-key--kbd-keys emacs-leaders))
       (define-key (symbol-value root-map) key prefix))
 
-    ;; Also wire default leader's "m" to this per-mode prefix so
-    ;; "SPC m" (or "M-m m") opens the major-mode leader map.
-    (define-key leader-key-default-map (kbd "m") prefix)
+    ;; Do not bind "m" globally; major-mode leader activation is bound
+    ;; per state in Evil and under the Emacs leader above.
     (let ((var-sym (if minor mode active-var)))
       (with-eval-after-load 'evil
-        (dolist (state states)
+        (dolist (state leader-key--evil-overriding-states)
           ;; Ensure this map takes precedence in Evil and has per-state aux maps
           (evil-make-overriding-map (symbol-value root-map) state)
           (let ((aux (evil-get-auxiliary-keymap (symbol-value root-map) state t)))
@@ -187,7 +191,7 @@ If MINOR is non-nil, MODE is treated as a minor mode, otherwise a major mode."
               (define-key aux key prefix))))
         ;; Also register leaders at the minor-mode level for completeness
         (dolist (key (leader-key--kbd-keys leaders))
-          (evil-define-minor-mode-key states var-sym key prefix))
+          (evil-define-minor-mode-key leader-key--evil-overriding-states var-sym key prefix))
         (evil-normalize-keymaps)))
 
     (boundp prefix)))
@@ -284,7 +288,7 @@ they are in `leader-key-set-leader-keys'."
   ;; Ensure prefix command for default leader map
   (let* ((prefix (leader-key--ensure-prefix 'leader-key-default-map))
          (root-map 'leader-key-default-root-map)
-         (states '(normal motion visual)))
+         )
     (unless (and (boundp root-map) (keymapp (symbol-value root-map)))
       (set root-map (make-sparse-keymap)))
 
@@ -301,19 +305,17 @@ they are in `leader-key-set-leader-keys'."
     (dolist (key (leader-key--kbd-keys (list leader-key-emacs-leader-key)))
       (define-key (symbol-value root-map) key prefix))
     (with-eval-after-load 'evil
-      (dolist (state states)
+      (dolist (state leader-key--evil-overriding-states)
         (evil-make-overriding-map (symbol-value root-map) state)
         (when (leader-key-acceptable-leader-p leader-key-evil-leader-key)
           (let ((aux (evil-get-auxiliary-keymap (symbol-value root-map) state t)))
             (define-key aux (kbd leader-key-evil-leader-key) prefix))))
-      ;; Explicitly override SPC in Evil's state maps
+      ;; Register the leader at minor-mode level so it is scoped to the mode
       (when (leader-key-acceptable-leader-p leader-key-evil-leader-key)
-        (define-key evil-motion-state-map (kbd leader-key-evil-leader-key) prefix)
-        (define-key evil-normal-state-map (kbd leader-key-evil-leader-key) prefix)
-        (define-key evil-visual-state-map (kbd leader-key-evil-leader-key) prefix))
-      ;; Also register the leader at minor-mode level to ensure presence
-      (when (leader-key-acceptable-leader-p leader-key-evil-leader-key)
-        (evil-define-minor-mode-key states 'leader-key-leader-override-mode (kbd leader-key-evil-leader-key) prefix))
+        (evil-define-minor-mode-key leader-key--evil-overriding-states
+                                    'leader-key-leader-override-mode
+                                    (kbd leader-key-evil-leader-key)
+                                    prefix))
       (evil-normalize-keymaps))))
 
 (provide 'leader-key)
