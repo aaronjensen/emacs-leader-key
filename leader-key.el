@@ -91,8 +91,20 @@ ACTIVATE-VAR for all modes in MAJOR-MODE-LIST.
 Example:
   (leader-key-add-to-major-mode-list `leader-key-org-mode-map-active'
                                      (list \='org-journal-mode))
-activates the Org leader map in `org-journal-mode' buffers as well."
-  (leader-key--add-to-major-mode-list activate-var major-mode-list))
+activates the Org leader map in `org-journal-mode' buffers as well.
+
+Also normalizes existing buffers so the change applies immediately."
+  (leader-key--add-to-major-mode-list activate-var major-mode-list)
+  ;; Recompute activation in existing buffers where ACTIVATE-VAR participates.
+  (let ((modes (cdr (assq activate-var leader-key--major-modes-alist))))
+    (when modes
+      (dolist (buf (buffer-list))
+        (with-current-buffer buf
+          (when (boundp activate-var)
+            (set (make-local-variable activate-var)
+                 (and (memq major-mode modes) t))
+            (when (featurep 'evil)
+              (evil-normalize-keymaps))))))))
 
 
 (defun leader-key--change-major-mode-after-body-hook ()
@@ -101,7 +113,8 @@ activates the Org leader map in `org-journal-mode' buffers as well."
     (let ((active-var (car entry))
           (modes (cdr entry)))
       (when (boundp active-var)
-        (setf (symbol-value active-var) (memq major-mode modes)))))
+        (set (make-local-variable active-var)
+             (and (memq major-mode modes) t)))))
   ;; If Evil is present, ensure it recomputes keymaps after activation flips
   (when (featurep 'evil)
     (evil-normalize-keymaps)))
@@ -171,8 +184,16 @@ If MINOR is non-nil, MODE is treated as a minor mode, otherwise a major mode."
       (eval `(defvar-local ,active-var nil))
       (add-to-list 'minor-mode-map-alist (cons active-var (symbol-value root-map)))
       (leader-key--add-to-major-mode-list active-var (list mode))
-      ;; Trigger once for current buffer
-      (leader-key--change-major-mode-after-body-hook))
+      ;; Normalize all existing buffers so activation takes effect immediately,
+      ;; including buffers already in any associated modes.
+      (let ((modes (cdr (assq active-var leader-key--major-modes-alist))))
+        (dolist (buf (buffer-list))
+          (with-current-buffer buf
+            (when (boundp active-var)
+              (set (make-local-variable active-var)
+                   (and (memq major-mode modes) t))
+              (when (featurep 'evil)
+                (evil-normalize-keymaps)))))))
 
     ;; Bind only Emacs leaders into the root-map. Evil leaders are bound
     ;; via Evil state maps to avoid affecting insert/emacs states.
